@@ -1273,6 +1273,119 @@ def texto_pdf(texto):
     return texto.decode("latin-1")
 
 
+@app.route("/relatorio", methods=["GET"])
+def relatorio():
+    # gera e baixa o PDF das movimentações do período escolhido
+    periodo = request.args.get("periodo", "ultimos")
+
+    if periodo not in PERIODOS:
+        periodo = "ultimos"
+
+    data_inicio, data_fim = datas_do_periodo(periodo)
+    movimentacoes_pdf = buscar_movimentacoes(data_inicio, data_fim)
+
+    if not movimentacoes_pdf:
+        return jsonify({
+            "erro": "Nenhuma movimentação encontrada no período."
+        }), 404
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Arial", style="B", size=16)
+    pdf.cell(
+        190, 10,
+        texto_pdf("Relatório de Movimentações - CredMais"),
+        ln=True,
+        align="C"
+    )
+
+    pdf.set_font("Arial", size=10)
+    pdf.cell(
+        190, 8,
+        texto_pdf(
+            f"Período: {PERIODOS[periodo]} | "
+            f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        ),
+        ln=True,
+        align="C"
+    )
+
+    pdf.ln(5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
+
+    pdf.set_font("Arial", style="B", size=10)
+    pdf.cell(30, 10, "Data", border=1)
+    pdf.cell(75, 10, texto_pdf("Descrição"), border=1)
+    pdf.cell(35, 10, "Categoria", border=1)
+    pdf.cell(50, 10, texto_pdf("Valor (R$)"), border=1, ln=True)
+
+    pdf.set_font("Arial", size=9)
+    total_receitas = 0
+    total_despesas = 0
+
+    for item in movimentacoes_pdf:
+        if item["categoria"] == "Receita":
+            total_receitas += item["valor"]
+            sinal = "+"
+        else:
+            total_despesas += item["valor"]
+            sinal = "-"
+
+        pdf.cell(30, 10, item["data_completa"], border=1)
+        pdf.cell(75, 10, texto_pdf(item["descricao"])[:38], border=1)
+        pdf.cell(35, 10, texto_pdf(item["categoria"]), border=1)
+        pdf.cell(
+            50, 10,
+            texto_pdf(f"{sinal} R$ {formatar_reais(item['valor'])}"),
+            border=1,
+            ln=True
+        )
+
+    pdf.ln(10)
+    pdf.set_font("Arial", style="B", size=11)
+    pdf.cell(
+        190, 10,
+        f"Total de movimentacoes: {len(movimentacoes_pdf)}",
+        ln=True,
+        align="C"
+    )
+    pdf.cell(
+        190, 10,
+        texto_pdf(f"Receitas: R$ {formatar_reais(total_receitas)}"),
+        ln=True,
+        align="C"
+    )
+    pdf.cell(
+        190, 10,
+        texto_pdf(f"Despesas: R$ {formatar_reais(total_despesas)}"),
+        ln=True,
+        align="C"
+    )
+    pdf.cell(
+        190, 10,
+        texto_pdf(
+            f"Saldo do período: R$ "
+            f"{formatar_reais(total_receitas - total_despesas)}"
+        ),
+        ln=True,
+        align="C"
+    )
+
+    pdf_path = os.path.join(
+        app.root_path, "relatorio_movimentacoes.pdf"
+    )
+    pdf.output(pdf_path)
+
+    return send_file(
+        pdf_path,
+        as_attachment=True,
+        mimetype="application/pdf"
+    )
+
+
 @app.route("/emprestimos/<int:id_emprestimo>/pdf")
 def pdf_emprestimo(id_emprestimo):
     # relatório em PDF de UM empréstimo: dados do empréstimo + todas as parcelas
